@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+/* Pequenos defaults para a página */
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+/* Animação em "frames" para abrir um registro */
+@keyframes openFrames {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+    filter: blur(8px);
+  }
+  15% {
+    opacity: 0.35;
+    transform: translateY(-6px) scale(0.985);
+    filter: blur(6px);
+  }
+  30% {
+    opacity: 0.6;
+    transform: translateY(-3px) scale(0.99);
+    filter: blur(4px);
+  }
+  45% {
+    opacity: 0.75;
+    transform: translateY(-2px) scale(0.995);
+    filter: blur(3px);
+  }
+  60% {
+    opacity: 0.88;
+    transform: translateY(-1px) scale(0.998);
+    filter: blur(1.5px);
+  }
+  80% {
+    opacity: 0.96;
+    transform: translateY(0px) scale(1);
+    filter: blur(0.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.open-frames {
+  transform-origin: top;
+  animation: openFrames 520ms steps(7, end) both;
+  will-change: transform, opacity, filter;
+}
