@@ -58,7 +58,7 @@ export function LeiturasPage() {
   const [creating, setCreating] = useState(false)
   const [createErr, setCreateErr] = useState<string | null>(null)
 
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [viewId, setViewId] = useState<string | null>(null)
   const [avaliacoesByLeituraId, setAvaliacoesByLeituraId] = useState<Record<string, LoadedAvaliacoesState>>({})
 
   const [editResumoOpen, setEditResumoOpen] = useState(false)
@@ -196,29 +196,29 @@ export function LeiturasPage() {
     }
   }
 
-  const expandedLeitura = useMemo(() => {
-    if (!expandedId) return null
-    return leituras.find((l) => getId(l) === expandedId) ?? null
-  }, [expandedId, leituras])
+  const viewLeitura = useMemo(() => {
+    if (!viewId) return null
+    return leituras.find((l) => getId(l) === viewId) ?? null
+  }, [viewId, leituras])
 
-  const expandedHasResumo = Boolean(asString(expandedLeitura?.resumo_resposta).trim())
-  const expandedAvaliacoesState = expandedId ? avaliacoesByLeituraId[expandedId] ?? { status: 'idle' as const } : { status: 'idle' as const }
+  const viewHasResumo = Boolean(asString(viewLeitura?.resumo_resposta).trim())
+  const viewAvaliacoesState = viewId ? avaliacoesByLeituraId[viewId] ?? { status: 'idle' as const } : { status: 'idle' as const }
 
   const minhaAvaliacao = useMemo(() => {
-    if (!user || !expandedId) return null
-    if (!expandedAvaliacoesState || expandedAvaliacoesState.status !== 'ready') return null
-    return expandedAvaliacoesState.items.find((a) => asString(a.usuario_id) === user.id) ?? null
-  }, [expandedAvaliacoesState, expandedId, user])
+    if (!user || !viewId) return null
+    if (!viewAvaliacoesState || viewAvaliacoesState.status !== 'ready') return null
+    return viewAvaliacoesState.items.find((a) => asString(a.usuario_id) === user.id) ?? null
+  }, [viewAvaliacoesState, viewId, user])
 
   const media = useMemo(() => {
-    if (!expandedAvaliacoesState || expandedAvaliacoesState.status !== 'ready') return null
-    const notas = expandedAvaliacoesState.items
+    if (!viewAvaliacoesState || viewAvaliacoesState.status !== 'ready') return null
+    const notas = viewAvaliacoesState.items
       .map((a) => Number(asString(a.nota)))
       .filter((n) => Number.isFinite(n))
     if (notas.length === 0) return null
     const sum = notas.reduce((acc, n) => acc + n, 0)
     return sum / notas.length
-  }, [expandedAvaliacoesState])
+  }, [viewAvaliacoesState])
 
   async function onSubmitAvaliacao(leituraId: string) {
     if (!user) return
@@ -289,7 +289,7 @@ export function LeiturasPage() {
     setDeletingId(leituraId)
     try {
       await apiOkData(`/leituras/${leituraId}`, { method: 'DELETE' })
-      if (expandedId === leituraId) setExpandedId(null)
+      if (viewId === leituraId) setViewId(null)
       await loadLeituras()
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : 'Falha ao excluir leitura')
@@ -383,6 +383,117 @@ export function LeiturasPage() {
         </div>
       </Modal>
 
+      <Modal
+        open={Boolean(viewId)}
+        title="Visualizar leitura"
+        onClose={() => {
+          setViewId(null)
+          setAvaliacaoErr(null)
+          setAvaliacaoOk(false)
+          setNota('')
+          setComentario('')
+        }}
+      >
+        {!viewLeitura ? (
+          <div className="text-sm text-zinc-300">Registro não encontrado.</div>
+        ) : (
+          <div className="space-y-6 open-frames">
+            <div>
+              <div className="text-sm font-semibold text-zinc-100">Texto</div>
+              <div className="mt-2 whitespace-pre-wrap rounded-2xl border border-white/10 bg-zinc-950/30 p-4 text-sm text-zinc-200">
+                {asString(viewLeitura.texto) || '—'}
+              </div>
+            </div>
+
+            {viewHasResumo ? (
+              <div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-zinc-100">Resumo/Resposta</div>
+                  {isDavi ? (
+                    <button
+                      type="button"
+                      className="text-xs text-zinc-300 underline decoration-white/20 underline-offset-4 hover:text-white"
+                      onClick={() => openResumoEditor(getId(viewLeitura) ?? '')}
+                    >
+                      Editar
+                    </button>
+                  ) : null}
+                </div>
+                <div className="mt-2 whitespace-pre-wrap rounded-2xl border border-white/10 bg-zinc-950/30 p-4 text-sm text-zinc-200">
+                  {asString(viewLeitura.resumo_resposta)}
+                </div>
+              </div>
+            ) : null}
+
+            {viewAvaliacoesState.status === 'loading' ? <div className="text-sm text-zinc-300">Carregando avaliações...</div> : null}
+            {viewAvaliacoesState.status === 'error' ? <InlineError message={viewAvaliacoesState.message} /> : null}
+
+            {viewAvaliacoesState.status === 'ready' && viewAvaliacoesState.items.length > 0 ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-zinc-100">Avaliações</div>
+                  {media !== null ? (
+                    <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200">
+                      Média: <span className="font-semibold text-white">{media.toFixed(1)}</span>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="space-y-3">
+                  {viewAvaliacoesState.items.map((a) => {
+                    const aid =
+                      getId(a) ?? `${asString(a.usuario_id)}-${asString(a.created_at)}-${Math.random().toString(16).slice(2)}`
+                    const uid = asString(a.usuario_id).trim()
+                    const nome = uid ? usersById[uid] ?? '' : ''
+                    const who = nome ? nome : uid ? `Usuário ${uid.slice(0, 8)}…` : 'Usuário'
+                    const n = asString(a.nota)
+                    const c = asString(a.comentario).trim()
+                    return (
+                      <div key={aid} className="rounded-2xl border border-white/10 bg-zinc-950/20 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-semibold text-zinc-100">{who}</div>
+                          <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200">
+                            Nota: <span className="font-semibold text-white">{n}</span>
+                          </div>
+                        </div>
+                        {c ? <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-200">{c}</div> : null}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {viewHasResumo && user && !minhaAvaliacao ? (
+              <div className="rounded-2xl border border-white/10 p-4">
+                <div className="text-sm font-semibold text-zinc-100">Avaliar</div>
+                <div className="mt-4 space-y-4">
+                  <Input label="Nota (0 a 10)" type="number" value={nota} onChange={setNota} placeholder="Ex.: 9" />
+                  <Textarea
+                    label="Comentário (opcional)"
+                    value={comentario}
+                    onChange={setComentario}
+                    rows={4}
+                    placeholder="Ex.: Boa síntese, mas..."
+                  />
+                  {avaliacaoErr ? <InlineError message={avaliacaoErr} /> : null}
+                  {avaliacaoOk ? (
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                      Avaliação enviada.
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button onClick={() => void onSubmitAvaliacao(getId(viewLeitura) ?? '')} disabled={savingAvaliacao}>
+                      {savingAvaliacao ? 'Enviando...' : 'Enviar avaliação'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </Modal>
+
       {err ? <InlineError message={err} /> : null}
       {loading ? <div className="text-sm text-zinc-300">Carregando...</div> : null}
       {!loading && leituras.length === 0 ? <div className="text-sm text-zinc-400">Sem leituras.</div> : null}
@@ -391,7 +502,6 @@ export function LeiturasPage() {
         {leituras.map((l) => {
           const id = getId(l)
           if (!id) return null
-          const expanded = expandedId === id
           const createdAt = asString(l.created_at)
           const resumo = asString(l.resumo_resposta).trim()
           const texto = asString(l.texto).trim()
@@ -403,7 +513,6 @@ export function LeiturasPage() {
                 <div className="min-w-0">
                   <div className="text-base font-semibold tracking-tight text-zinc-100 sm:text-lg">
                     Leitura
-                    <span className="ml-2 text-sm font-medium text-zinc-400">#{id}</span>
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
                     {createdAt ? <span>Criado: {formatDayMonth(createdAt)}</span> : null}
@@ -416,16 +525,15 @@ export function LeiturasPage() {
                   <Button
                     variant="secondary"
                     onClick={() => {
-                      const next = expanded ? null : id
-                      setExpandedId(next)
+                      setViewId(id)
                       setAvaliacaoErr(null)
                       setAvaliacaoOk(false)
                       setNota('')
                       setComentario('')
-                      if (!expanded) void ensureAvaliacoesLoaded(id)
+                      void ensureAvaliacoesLoaded(id)
                     }}
                   >
-                    {expanded ? 'Fechar' : 'Abrir'}
+                    Abrir
                   </Button>
                   {canMutate ? (
                     <>
@@ -472,109 +580,7 @@ export function LeiturasPage() {
                 </div>
               </div>
 
-              {!expanded ? <div className="mt-4 whitespace-pre-wrap text-sm text-zinc-200">{textoShort || '—'}</div> : null}
-
-              {expanded ? (
-                <div className="mt-5 space-y-6 open-frames">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-100">Texto</div>
-                    <div className="mt-2 whitespace-pre-wrap rounded-2xl border border-white/10 bg-zinc-950/30 p-4 text-sm text-zinc-200">
-                      {texto || '—'}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-zinc-100">Resumo/Resposta</div>
-                      {isDavi ? (
-                        <button
-                          type="button"
-                          className="text-xs text-zinc-300 underline decoration-white/20 underline-offset-4 hover:text-white"
-                          onClick={() => openResumoEditor(id)}
-                        >
-                          {resumo ? 'Editar' : 'Adicionar'}
-                        </button>
-                      ) : null}
-                    </div>
-                    <div className="mt-2 whitespace-pre-wrap rounded-2xl border border-white/10 bg-zinc-950/30 p-4 text-sm text-zinc-200">
-                      {resumo || 'Ainda não há resumo/resposta.'}
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-zinc-100">Avaliações</div>
-                      {media !== null ? (
-                        <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200">
-                          Média: <span className="font-semibold text-white">{media.toFixed(1)}</span>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {expandedAvaliacoesState.status === 'loading' ? (
-                      <div className="text-sm text-zinc-300">Carregando avaliações...</div>
-                    ) : null}
-                    {expandedAvaliacoesState.status === 'error' ? <InlineError message={expandedAvaliacoesState.message} /> : null}
-
-                    {expandedAvaliacoesState.status === 'ready' ? (
-                      <div className="space-y-3">
-                        {expandedAvaliacoesState.items.length === 0 ? (
-                          <div className="text-sm text-zinc-400">Sem avaliações.</div>
-                        ) : (
-                          <div className="space-y-3">
-                            {expandedAvaliacoesState.items.map((a) => {
-                              const aid = getId(a) ?? `${asString(a.usuario_id)}-${asString(a.created_at)}-${Math.random().toString(16).slice(2)}`
-                              const uid = asString(a.usuario_id).trim()
-                              const nome = uid ? usersById[uid] ?? '' : ''
-                              const who = nome ? nome : uid ? `Usuário ${uid.slice(0, 8)}…` : 'Usuário'
-                              const n = asString(a.nota)
-                              const c = asString(a.comentario).trim()
-                              return (
-                                <div key={aid} className="rounded-2xl border border-white/10 bg-zinc-950/20 p-4">
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div className="text-sm font-semibold text-zinc-100">{who}</div>
-                                    <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200">
-                                      Nota: <span className="font-semibold text-white">{n}</span>
-                                    </div>
-                                  </div>
-                                  {c ? <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-200">{c}</div> : null}
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
-
-                    {expandedHasResumo && user && !minhaAvaliacao ? (
-                      <div className="rounded-2xl border border-white/10 p-4">
-                        <div className="text-sm font-semibold text-zinc-100">Avaliar</div>
-                        <div className="mt-4 space-y-4">
-                          <Input label="Nota (0 a 10)" type="number" value={nota} onChange={setNota} placeholder="Ex.: 9" />
-                          <Textarea
-                            label="Comentário (opcional)"
-                            value={comentario}
-                            onChange={setComentario}
-                            rows={4}
-                            placeholder="Ex.: Boa síntese, mas..."
-                          />
-                          {avaliacaoErr ? <InlineError message={avaliacaoErr} /> : null}
-                          {avaliacaoOk ? (
-                            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                              Avaliação enviada.
-                            </div>
-                          ) : null}
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button onClick={() => void onSubmitAvaliacao(id)} disabled={savingAvaliacao}>
-                              {savingAvaliacao ? 'Enviando...' : 'Enviar avaliação'}
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
+              <div className="mt-4 whitespace-pre-wrap text-sm text-zinc-200">{textoShort || '—'}</div>
             </div>
           )
         })}

@@ -10,6 +10,20 @@ body {
   margin: 0;
 }
 
+/* Date inputs (Windows/Edge/Chrome): keep calendar icon light on dark UI */
+input[type='date'] {
+  color-scheme: dark;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.85;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
 /* Animação em "frames" para abrir um registro */
 @keyframes openFrames {
   0% {

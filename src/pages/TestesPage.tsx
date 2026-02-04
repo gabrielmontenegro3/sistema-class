@@ -83,7 +83,7 @@ export function TestesPage() {
   const [creating, setCreating] = useState(false)
   const [createErr, setCreateErr] = useState<string | null>(null)
 
-  const [expandedTestId, setExpandedTestId] = useState<string | null>(null)
+  const [viewTestId, setViewTestId] = useState<string | null>(null)
   const [questionsByTestId, setQuestionsByTestId] = useState<Record<string, LoadedQuestionsState>>({})
   const [respostasByTestId, setRespostasByTestId] = useState<Record<string, LoadedRespostasState>>({})
   const [answeredTestIds, setAnsweredTestIds] = useState<Record<string, true>>({})
@@ -253,7 +253,7 @@ export function TestesPage() {
 
       await loadTests()
       closeCreate()
-      setExpandedTestId(testeId)
+      setViewTestId(testeId)
       setAnswersByQuestionId({})
       setSubmitErr(null)
       setSubmitOk(false)
@@ -360,7 +360,7 @@ export function TestesPage() {
     setDeletingId(testId)
     try {
       await apiOkData(`/testes/${testId}`, { method: 'DELETE' })
-      if (expandedTestId === testId) setExpandedTestId(null)
+      if (viewTestId === testId) setViewTestId(null)
       await loadTests()
     } catch (e) {
       setTestsErr(e instanceof ApiError ? e.message : 'Falha ao excluir teste')
@@ -375,10 +375,6 @@ export function TestesPage() {
         {list.map((t) => {
           const id = getId(t)
           if (!id) return null
-          const expanded = expandedTestId === id
-          const qsState = questionsByTestId[id] ?? { status: 'idle' as const }
-          const rsState = respostasByTestId[id] ?? { status: 'idle' as const }
-
           const alreadyAnswered = canAnswer ? Boolean(answeredTestIds[id]) : false
           const score = canAnswer ? scoreByTestId[id] ?? null : null
           const canMutate = !isDavi && isOwner(t, user)
@@ -404,17 +400,14 @@ export function TestesPage() {
                   <Button
                     variant="secondary"
                     onClick={() => {
-                      const next = expanded ? null : id
-                      setExpandedTestId(next)
+                      setViewTestId(id)
                       setSubmitErr(null)
                       setSubmitOk(false)
-                      if (!expanded) {
-                        void ensureQuestionsLoaded(id)
-                        void ensureRespostasLoaded(id)
-                      }
+                      void ensureQuestionsLoaded(id)
+                      void ensureRespostasLoaded(id)
                     }}
                   >
-                    {expanded ? 'Fechar' : canAnswer ? (alreadyAnswered ? 'Ver' : 'Responder') : 'Ver'}
+                    Abrir
                   </Button>
                   {canMutate ? (
                     <>
@@ -450,143 +443,6 @@ export function TestesPage() {
                   ) : null}
                 </div>
               </div>
-
-              {expanded ? (
-                <div className="mt-4 space-y-4 open-frames">
-                  {qsState.status === 'loading' ? <div className="text-sm text-zinc-300">Carregando questões...</div> : null}
-                  {qsState.status === 'error' ? <InlineError message={qsState.message} /> : null}
-
-                  {qsState.status === 'ready' ? (
-                    <div className="space-y-3">
-                      {qsState.items.length === 0 ? <div className="text-sm text-zinc-400">Sem questões.</div> : null}
-
-                      {canAnswer ? (
-                        <div className="space-y-3">
-                          {rsState.status === 'loading' ? (
-                            <div className="text-sm text-zinc-300">Carregando suas respostas...</div>
-                          ) : null}
-                          {rsState.status === 'error' ? <InlineError message={rsState.message} /> : null}
-
-                          {qsState.items.map((q, idx) => {
-                            const qid = getId(q)
-                            if (!qid) return null
-
-                            const existing =
-                              alreadyAnswered && rsState.status === 'ready'
-                                ? rsState.items.find((r) => asString(r.usuario_id) === user?.id && asString(r.questao_id) === qid)
-                                : null
-
-                            const correta = existing ? (typeof existing.correta === 'boolean' ? (existing.correta as boolean) : null) : null
-
-                            return (
-                              <div key={qid} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                                <div className="flex items-center justify-between gap-3">
-                                  <div className="text-xs font-medium text-zinc-400">Questão {idx + 1}</div>
-                                  {alreadyAnswered ? (
-                                    <div
-                                      className={[
-                                        'rounded-full border px-3 py-1 text-xs font-semibold',
-                                        correta === true
-                                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
-                                          : correta === false
-                                            ? 'border-red-500/30 bg-red-500/10 text-red-100'
-                                            : 'border-white/10 bg-white/5 text-zinc-200',
-                                      ].join(' ')}
-                                    >
-                                      {correta === true ? 'Certo' : correta === false ? 'Errado' : 'Aguardando correção'}
-                                    </div>
-                                  ) : null}
-                                </div>
-
-                                <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-100">{asString(q.enunciado)}</div>
-                                <div className="mt-3">
-                                  {alreadyAnswered ? (
-                                    <div>
-                                      <div className="mb-1 text-xs font-medium text-zinc-300">Sua resposta</div>
-                                      <div className="rounded-xl border border-white/10 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-100">
-                                        {asString(existing?.resposta_usuario)}
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <Input
-                                      label="Sua resposta"
-                                      value={answersByQuestionId[qid] ?? ''}
-                                      onChange={(v) => setAnswersByQuestionId((m) => ({ ...m, [qid]: v }))}
-                                      placeholder="Digite sua resposta"
-                                    />
-                                  )}
-                                </div>
-                              </div>
-                            )
-                          })}
-
-                          {submitErr ? <InlineError message={submitErr} /> : null}
-                          {submitOk ? (
-                            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                              Respostas enviadas.
-                            </div>
-                          ) : null}
-
-                          {!alreadyAnswered ? (
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Button onClick={() => void onSubmitAnswers(id)} disabled={submittingAnswers}>
-                                {submittingAnswers ? 'Enviando...' : 'Enviar respostas'}
-                              </Button>
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {rsState.status === 'loading' ? (
-                            <div className="text-sm text-zinc-300">Carregando respostas...</div>
-                          ) : null}
-                          {rsState.status === 'error' ? <InlineError message={rsState.message} /> : null}
-
-                          {qsState.items.map((q, idx) => {
-                            const qid = getId(q)
-                            if (!qid) return null
-
-                            const r =
-                              rsState.status === 'ready'
-                                ? rsState.items.find((x) => asString(x.questao_id) === qid) ?? null
-                                : null
-                            const correta = r ? (typeof r.correta === 'boolean' ? (r.correta as boolean) : null) : null
-                            return (
-                              <div key={qid} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                                <div className="flex items-center justify-between gap-3">
-                                  <div className="text-xs font-medium text-zinc-400">Questão {idx + 1}</div>
-                                  <div
-                                    className={[
-                                      'rounded-full border px-3 py-1 text-xs font-semibold',
-                                      !r
-                                        ? 'border-white/10 bg-white/5 text-zinc-200'
-                                        : correta === true
-                                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
-                                          : correta === false
-                                            ? 'border-red-500/30 bg-red-500/10 text-red-100'
-                                            : 'border-white/10 bg-white/5 text-zinc-200',
-                                    ].join(' ')}
-                                  >
-                                    {!r ? 'Sem resposta' : correta === true ? 'Certo' : correta === false ? 'Errado' : 'Aguardando correção'}
-                                  </div>
-                                </div>
-                                <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-100">{asString(q.enunciado)}</div>
-
-                                <div className="mt-3">
-                                  <div className="mb-1 text-xs font-medium text-zinc-300">Resposta</div>
-                                  <div className="rounded-xl border border-white/10 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-100">
-                                    {r ? asString(r.resposta_usuario) : '—'}
-                                  </div>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
             </div>
           )
         })}
@@ -614,6 +470,163 @@ export function TestesPage() {
         ) : null
       }
     >
+      <Modal
+        open={Boolean(viewTestId)}
+        title="Visualizar teste"
+        onClose={() => {
+          setViewTestId(null)
+          setSubmitErr(null)
+          setSubmitOk(false)
+        }}
+      >
+        {(() => {
+          if (!viewTestId) return null
+          const t = sortedTests.find((x) => getId(x) === viewTestId) ?? null
+          if (!t) return <div className="text-sm text-zinc-300">Registro não encontrado.</div>
+          const qsState = questionsByTestId[viewTestId] ?? { status: 'idle' as const }
+          const rsState = respostasByTestId[viewTestId] ?? { status: 'idle' as const }
+          const alreadyAnswered = canAnswer ? Boolean(answeredTestIds[viewTestId]) : false
+
+          return (
+            <div className="space-y-4 open-frames">
+              <div className="flex flex-col gap-1">
+                <div className="text-lg font-semibold text-zinc-100">{asString(t.titulo) || 'Sem título'}</div>
+                <div className="text-xs text-zinc-400">{formatDayMonth(t.data)}</div>
+              </div>
+
+              {qsState.status === 'loading' ? <div className="text-sm text-zinc-300">Carregando questões...</div> : null}
+              {qsState.status === 'error' ? <InlineError message={qsState.message} /> : null}
+
+              {qsState.status === 'ready' ? (
+                <div className="space-y-3">
+                  {qsState.items.length === 0 ? <div className="text-sm text-zinc-400">Sem questões.</div> : null}
+
+                  {canAnswer ? (
+                    <div className="space-y-3">
+                      {rsState.status === 'loading' ? (
+                        <div className="text-sm text-zinc-300">Carregando suas respostas...</div>
+                      ) : null}
+                      {rsState.status === 'error' ? <InlineError message={rsState.message} /> : null}
+
+                      {qsState.items.map((q, idx) => {
+                        const qid = getId(q)
+                        if (!qid) return null
+
+                        const existing =
+                          alreadyAnswered && rsState.status === 'ready'
+                            ? rsState.items.find((r) => asString(r.usuario_id) === user?.id && asString(r.questao_id) === qid)
+                            : null
+
+                        const correta = existing ? (typeof existing.correta === 'boolean' ? (existing.correta as boolean) : null) : null
+
+                        return (
+                          <div key={qid} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-xs font-medium text-zinc-400">Questão {idx + 1}</div>
+                              {alreadyAnswered ? (
+                                <div
+                                  className={[
+                                    'rounded-full border px-3 py-1 text-xs font-semibold',
+                                    correta === true
+                                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
+                                      : correta === false
+                                        ? 'border-red-500/30 bg-red-500/10 text-red-100'
+                                        : 'border-white/10 bg-white/5 text-zinc-200',
+                                  ].join(' ')}
+                                >
+                                  {correta === true ? 'Certo' : correta === false ? 'Errado' : 'Aguardando correção'}
+                                </div>
+                              ) : null}
+                            </div>
+
+                            <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-100">{asString(q.enunciado)}</div>
+                            <div className="mt-3">
+                              {alreadyAnswered ? (
+                                <div>
+                                  <div className="mb-1 text-xs font-medium text-zinc-300">Sua resposta</div>
+                                  <div className="rounded-xl border border-white/10 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-100">
+                                    {asString(existing?.resposta_usuario)}
+                                  </div>
+                                </div>
+                              ) : (
+                                <Input
+                                  label="Sua resposta"
+                                  value={answersByQuestionId[qid] ?? ''}
+                                  onChange={(v) => setAnswersByQuestionId((m) => ({ ...m, [qid]: v }))}
+                                  placeholder="Digite sua resposta"
+                                />
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+
+                      {submitErr ? <InlineError message={submitErr} /> : null}
+                      {submitOk ? (
+                        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                          Respostas enviadas.
+                        </div>
+                      ) : null}
+
+                      {!alreadyAnswered ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button onClick={() => void onSubmitAnswers(viewTestId)} disabled={submittingAnswers}>
+                            {submittingAnswers ? 'Enviando...' : 'Enviar respostas'}
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {rsState.status === 'loading' ? <div className="text-sm text-zinc-300">Carregando respostas...</div> : null}
+                      {rsState.status === 'error' ? <InlineError message={rsState.message} /> : null}
+
+                      {qsState.items.map((q, idx) => {
+                        const qid = getId(q)
+                        if (!qid) return null
+
+                        const r =
+                          rsState.status === 'ready' ? rsState.items.find((x) => asString(x.questao_id) === qid) ?? null : null
+                        const correta = r ? (typeof r.correta === 'boolean' ? (r.correta as boolean) : null) : null
+                        return (
+                          <div key={qid} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-xs font-medium text-zinc-400">Questão {idx + 1}</div>
+                              <div
+                                className={[
+                                  'rounded-full border px-3 py-1 text-xs font-semibold',
+                                  !r
+                                    ? 'border-white/10 bg-white/5 text-zinc-200'
+                                    : correta === true
+                                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
+                                      : correta === false
+                                        ? 'border-red-500/30 bg-red-500/10 text-red-100'
+                                        : 'border-white/10 bg-white/5 text-zinc-200',
+                                ].join(' ')}
+                              >
+                                {!r ? 'Sem resposta' : correta === true ? 'Certo' : correta === false ? 'Errado' : 'Aguardando correção'}
+                              </div>
+                            </div>
+                            <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-100">{asString(q.enunciado)}</div>
+
+                            <div className="mt-3">
+                              <div className="mb-1 text-xs font-medium text-zinc-300">Resposta</div>
+                              <div className="rounded-xl border border-white/10 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-100">
+                                {r ? asString(r.resposta_usuario) : '—'}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          )
+        })()}
+      </Modal>
+
       <Modal
         open={editOpen}
         title="Editar teste"
