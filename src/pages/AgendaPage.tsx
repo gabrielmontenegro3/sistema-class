@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../app/auth'
 import { ApiError, apiOkData } from '../lib/api'
-import { Button, Checkbox, InlineError, Input, Modal, Page, Select, Textarea } from '../components/ui'
 import { formatDayMonth } from '../lib/date'
+import { Button, ConfirmDelete, CreateButton, GlassSegmentedControl, InlineError, Input, Modal, Page, Select, Textarea } from '../components/ui'
 
 type AnyItem = Record<string, unknown>
 
@@ -28,26 +28,6 @@ function todayLocalISODate(): string {
   return `${yyyy}-${mm}-${dd}`
 }
 
-function toDateOnlyValue(raw: unknown): string | null {
-  const s = String(raw ?? '').trim()
-  if (!s) return null
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
-  if (m) return s
-  const ts = Date.parse(s)
-  if (Number.isNaN(ts)) return null
-  const d = new Date(ts)
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
-
-function idAsNumber(x: unknown): number | null {
-  if (typeof x === 'number') return x
-  if (typeof x === 'string' && x.trim() && !Number.isNaN(Number(x))) return Number(x)
-  return null
-}
-
 function norm(s: string): string {
   return s.trim().toLowerCase()
 }
@@ -60,155 +40,185 @@ function ownerIdentity(item: AnyItem): { ownerId: string; ownerName: string } {
   return { ownerId, ownerName }
 }
 
+function sortDaysMostRecentFirst(a: AnyItem, b: AnyItem): number {
+  const ca = Date.parse(asString(a.created_at))
+  const cb = Date.parse(asString(b.created_at))
+  if (!Number.isNaN(cb) && !Number.isNaN(ca) && cb !== ca) return cb - ca
+  // fallback: dia desc (YYYY-MM-DD compara lexicograficamente)
+  const da = asString(a.dia)
+  const db = asString(b.dia)
+  if (db !== da) return db.localeCompare(da)
+  // fallback: id desc
+  const ia = Number(asString(a.id))
+  const ib = Number(asString(b.id))
+  if (!Number.isNaN(ib) && !Number.isNaN(ia) && ib !== ia) return ib - ia
+  return asString(b.id).localeCompare(asString(a.id))
+}
+
+type LoadState<T> =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; items: T[] }
+
+type ActivityDraft = { key: string; materia: string; conteudo: string; data_entrega: string }
+
+function newDraft(): ActivityDraft {
+  return { key: `a-${Math.random().toString(16).slice(2)}`, materia: '', conteudo: '', data_entrega: '' }
+}
+
 export function AgendaPage() {
   const { user } = useAuth()
   const isDavi = (user?.nome ?? '').trim().toLowerCase() === 'davi'
-  const [dia, setDia] = useState<string>(todayLocalISODate())
 
-  const [agendaDay, setAgendaDay] = useState<AnyItem | null>(null)
-  const [loadingAgenda, setLoadingAgenda] = useState(false)
-  const [agendaErr, setAgendaErr] = useState<string | null>(null)
-
-  const [atividades, setAtividades] = useState<AnyItem[]>([])
-  const [loadingAtividades, setLoadingAtividades] = useState(false)
-  const [atividadesErr, setAtividadesErr] = useState<string | null>(null)
-
-  const [creatingDay, setCreatingDay] = useState(false)
+  const [daysState, setDaysState] = useState<LoadState<AnyItem>>({ status: 'idle' })
+  const [atividadesByDayId, setAtividadesByDayId] = useState<Record<string, LoadState<AnyItem>>>({})
 
   const [createOpen, setCreateOpen] = useState(false)
-  const [materia, setMateria] = useState('')
-  const [conteudo, setConteudo] = useState('')
-  const [dataEntrega, setDataEntrega] = useState('')
-  const [creatingAtividade, setCreatingAtividade] = useState(false)
-  const [createAtividadeErr, setCreateAtividadeErr] = useState<string | null>(null)
+  const [createDia, setCreateDia] = useState<string>(todayLocalISODate())
+  const [drafts, setDrafts] = useState<ActivityDraft[]>([newDraft()])
+  const [creating, setCreating] = useState(false)
+  const [createErr, setCreateErr] = useState<string | null>(null)
+
   const [deletingAtividadeId, setDeletingAtividadeId] = useState<string | null>(null)
 
-  const agendaId = useMemo(() => (agendaDay ? getId(agendaDay) : null), [agendaDay])
+  const sortedDays = useMemo(() => {
+    if (daysState.status !== 'ready') return []
+    const arr = [...daysState.items]
+    arr.sort(sortDaysMostRecentFirst)
+    return arr
+  }, [daysState])
 
-  async function loadAgendaForDay(nextDia: string) {
-    setAgendaErr(null)
-    setAtividadesErr(null)
-    setLoadingAgenda(true)
+  async function loadDays() {
+    setDaysState({ status: 'loading' })
     try {
-      const d = nextDia.trim() || todayLocalISODate()
-      const rows = await apiOkData<AnyItem[]>(`/agenda?dia=${encodeURIComponent(d)}`)
-      const first = Array.isArray(rows) && rows.length > 0 ? rows[0] : null
-      setAgendaDay(first)
-      if (first) {
-        const id = getId(first)
-        if (id) void loadAtividades(id)
-        else setAtividades([])
-      } else {
-        setAtividades([])
-      }
+      const rows = await apiOkData<AnyItem[]>('/agenda')
+      setDaysState({ status: 'ready', items: Array.isArray(rows) ? rows : [] })
     } catch (e) {
-      setAgendaErr(e instanceof ApiError ? e.message : 'Falha ao carregar agenda')
-      setAgendaDay(null)
-      setAtividades([])
-    } finally {
-      setLoadingAgenda(false)
+      setDaysState({ status: 'error', message: e instanceof ApiError ? e.message : 'Falha ao carregar agenda' })
     }
   }
 
-  async function loadAtividades(id: string) {
-    setAtividadesErr(null)
-    setLoadingAtividades(true)
+  async function ensureAtividadesLoaded(dayId: string) {
+    const cur = atividadesByDayId[dayId]
+    if (cur?.status === 'loading' || cur?.status === 'ready') return
+    setAtividadesByDayId((m) => ({ ...m, [dayId]: { status: 'loading' } }))
     try {
-      const rows = await apiOkData<AnyItem[]>(`/agenda/${id}/atividades`)
+      const rows = await apiOkData<AnyItem[]>(`/agenda/${dayId}/atividades`)
       const list = Array.isArray(rows) ? rows : []
-      // Mais recentes no topo: data_entrega (desc), depois id (desc)
+      // menor e “arrumado”: entrega asc dentro do dia, com pendentes primeiro
       list.sort((a, b) => {
-        const da = toDateOnlyValue(a.data_entrega) ?? ''
-        const db = toDateOnlyValue(b.data_entrega) ?? ''
-        if (da !== db) return db.localeCompare(da)
-        const ia = idAsNumber(a.id) ?? -Infinity
-        const ib = idAsNumber(b.id) ?? -Infinity
-        if (ia !== ib) return ib - ia
-        return asString(b.materia).localeCompare(asString(a.materia))
+        const da = asString(a.data_entrega)
+        const db = asString(b.data_entrega)
+        if (da !== db) return da.localeCompare(db)
+        const fa = Boolean(a.feita)
+        const fb = Boolean(b.feita)
+        if (fa !== fb) return fa ? 1 : -1
+        return asString(a.materia).localeCompare(asString(b.materia))
       })
-      setAtividades(list)
+      setAtividadesByDayId((m) => ({ ...m, [dayId]: { status: 'ready', items: list } }))
     } catch (e) {
-      setAtividadesErr(e instanceof ApiError ? e.message : 'Falha ao carregar atividades')
-      setAtividades([])
-    } finally {
-      setLoadingAtividades(false)
+      setAtividadesByDayId((m) => ({
+        ...m,
+        [dayId]: { status: 'error', message: e instanceof ApiError ? e.message : 'Falha ao carregar atividades' },
+      }))
     }
   }
 
   useEffect(() => {
-    void loadAgendaForDay(dia)
+    void loadDays()
+  }, [])
+
+  useEffect(() => {
+    if (daysState.status !== 'ready') return
+    // carrega atividades em background para todos os dias (sem travar a UI)
+    void (async () => {
+      for (const d of daysState.items) {
+        const id = getId(d)
+        if (id) await ensureAtividadesLoaded(id)
+      }
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dia])
+  }, [daysState.status])
 
-  async function onCreateDay() {
-    setAgendaErr(null)
-    setCreatingDay(true)
+  function closeCreate() {
+    setCreateOpen(false)
+    setCreateDia(todayLocalISODate())
+    setDrafts([newDraft()])
+    setCreateErr(null)
+  }
+
+  async function onSaveCreate() {
+    setCreateErr(null)
+    const dia = createDia.trim() || todayLocalISODate()
+
+    const valid = drafts
+      .map((d) => ({
+        ...d,
+        materia: d.materia.trim(),
+        conteudo: d.conteudo.trim(),
+        data_entrega: d.data_entrega.trim() || dia,
+      }))
+      .filter((d) => d.materia || d.conteudo)
+
+    if (valid.length === 0) return setCreateErr('Adicione pelo menos 1 atividade')
+    const missing = valid.find((d) => !d.materia || !d.conteudo)
+    if (missing) return setCreateErr('Cada atividade precisa de Matéria e Conteúdo')
+
+    setCreating(true)
     try {
-      const d = dia.trim() || todayLocalISODate()
-      await apiOkData('/agenda', { method: 'POST', body: JSON.stringify({ dia: d }) })
-      await loadAgendaForDay(d)
+      const createdDay = await apiOkData<AnyItem>('/agenda', { method: 'POST', body: JSON.stringify({ dia }) })
+      const dayId = getId(createdDay)
+      if (!dayId) throw new ApiError('API retornou um dia sem id')
+
+      for (const d of valid) {
+        await apiOkData(`/agenda/${dayId}/atividades`, {
+          method: 'POST',
+          body: JSON.stringify({ materia: d.materia, conteudo: d.conteudo, data_entrega: d.data_entrega }),
+        })
+      }
+
+      closeCreate()
+      await loadDays()
+      // recarrega atividades do dia recém-criado
+      setAtividadesByDayId((m) => ({ ...m, [dayId]: { status: 'idle' } }))
+      void ensureAtividadesLoaded(dayId)
     } catch (e) {
-      setAgendaErr(e instanceof ApiError ? e.message : 'Falha ao criar dia')
+      setCreateErr(e instanceof ApiError ? e.message : 'Falha ao salvar')
     } finally {
-      setCreatingDay(false)
+      setCreating(false)
     }
   }
 
-  async function onCreateAtividade() {
-    setCreateAtividadeErr(null)
-    if (!agendaId) return setCreateAtividadeErr('Crie o dia na agenda antes de adicionar atividades.')
-
-    const m = materia.trim()
-    const c = conteudo.trim()
-    if (!m) return setCreateAtividadeErr('Informe a matéria')
-    if (!c) return setCreateAtividadeErr('Informe o conteúdo')
-
-    const d = dia.trim() || todayLocalISODate()
-    const entrega = dataEntrega.trim() || d
-
-    setCreatingAtividade(true)
-    try {
-      await apiOkData(`/agenda/${agendaId}/atividades`, {
-        method: 'POST',
-        body: JSON.stringify({ materia: m, conteudo: c, data_entrega: entrega }),
-      })
-      setMateria('')
-      setConteudo('')
-      setDataEntrega('')
-      setCreateOpen(false)
-      await loadAtividades(agendaId)
-    } catch (e) {
-      setCreateAtividadeErr(e instanceof ApiError ? e.message : 'Falha ao criar atividade')
-    } finally {
-      setCreatingAtividade(false)
-    }
-  }
-
-  async function toggleFeita(atividadeId: string, next: boolean) {
-    setAtividadesErr(null)
-    // otimista
-    setAtividades((cur) => cur.map((a) => (getId(a) === atividadeId ? { ...a, feita: next } : a)))
+  async function toggleFeita(dayId: string, atividade: AnyItem, next: boolean) {
+    const atividadeId = getId(atividade)
+    if (!atividadeId) return
+    setAtividadesByDayId((m) => {
+      const cur = m[dayId]
+      if (!cur || cur.status !== 'ready') return m
+      return {
+        ...m,
+        [dayId]: { status: 'ready', items: cur.items.map((a) => (getId(a) === atividadeId ? { ...a, feita: next } : a)) },
+      }
+    })
     try {
       await apiOkData(`/atividades/${atividadeId}`, { method: 'PATCH', body: JSON.stringify({ feita: next }) })
     } catch (e) {
-      // rollback simples recarregando
-      if (agendaId) void loadAtividades(agendaId)
-      setAtividadesErr(e instanceof ApiError ? e.message : 'Falha ao atualizar atividade')
+      setAtividadesByDayId((m) => ({ ...m, [dayId]: { status: 'idle' } }))
+      void ensureAtividadesLoaded(dayId)
     }
   }
 
-  async function onDeleteAtividade(atividadeId: string) {
-    if (!agendaId) return
-    const ok = window.confirm('Excluir esta atividade?')
-    if (!ok) return
-
-    setAtividadesErr(null)
+  async function onDeleteAtividade(dayId: string, atividade: AnyItem) {
+    const atividadeId = getId(atividade)
+    if (!atividadeId) return
     setDeletingAtividadeId(atividadeId)
     try {
       await apiOkData(`/atividades/${atividadeId}`, { method: 'DELETE' })
-      await loadAtividades(agendaId)
-    } catch (e) {
-      setAtividadesErr(e instanceof ApiError ? e.message : 'Falha ao excluir atividade')
+      setAtividadesByDayId((m) => ({ ...m, [dayId]: { status: 'idle' } }))
+      await ensureAtividadesLoaded(dayId)
+    } catch {
+      // ignora; o erro aparecerá quando recarregar a lista
     } finally {
       setDeletingAtividadeId(null)
     }
@@ -217,195 +227,204 @@ export function AgendaPage() {
   return (
     <Page
       title="Agenda"
-      description="Selecione um dia, crie o registro (se necessário) e adicione atividades."
       right={
-        <Button
+        <CreateButton
           onClick={() => {
-            setCreateAtividadeErr(null)
+            setCreateErr(null)
             setCreateOpen(true)
           }}
-          disabled={!agendaId}
-        >
-          Criar
-        </Button>
+          label="Criar dia + atividades"
+        />
       }
     >
       <Modal
         open={createOpen}
-        title="Criar atividade"
+        title="Criar dia + atividades"
         onClose={() => {
-          if (creatingAtividade) return
-          setCreateOpen(false)
-          setCreateAtividadeErr(null)
+          if (creating) return
+          closeCreate()
         }}
       >
-        {!agendaId ? (
-          <InlineError message="Crie o dia na agenda antes de adicionar atividades." />
-        ) : (
-          <div className="space-y-4">
-            <div className="text-xs text-zinc-300">
-              Dia: <span className="font-semibold text-zinc-100">{formatDayMonth(dia || todayLocalISODate())}</span>
-            </div>
-            <Select
-              label="Matéria"
-              value={materia}
-              onChange={setMateria}
-              placeholder="Selecione..."
-              options={[
-                { value: 'Português', label: 'Português' },
-                { value: 'Matemática', label: 'Matemática' },
-                { value: 'Ciências', label: 'Ciências' },
-                { value: 'História', label: 'História' },
-                { value: 'Geografia', label: 'Geografia' },
-                { value: 'Inglês', label: 'Inglês' },
-                { value: 'Artes', label: 'Artes' },
-                { value: 'Educação Física', label: 'Educação Física' },
-              ]}
-            />
-            <Textarea
-              label="Conteúdo"
-              value={conteudo}
-              onChange={setConteudo}
-              placeholder="Ex.: Lista 3, exercícios 1-10"
-              rows={4}
-            />
-            <Input label="Data de entrega (opcional)" type="date" value={dataEntrega} onChange={setDataEntrega} />
-            <div className="text-xs text-zinc-400">
-              Se não informar a data de entrega, será enviada a data do dia selecionado ({dia || todayLocalISODate()}).
-            </div>
-
-            {createAtividadeErr ? <InlineError message={createAtividadeErr} /> : null}
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={() => void onCreateAtividade()} disabled={creatingAtividade}>
-                {creatingAtividade ? 'Salvando...' : 'Salvar'}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  if (creatingAtividade) return
-                  setCreateOpen(false)
-                  setCreateAtividadeErr(null)
-                }}
-                disabled={creatingAtividade}
-              >
-                Cancelar
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
-      <div className="space-y-6">
-        <div className="max-w-xs">
-          <Input label="Dia" type="date" value={dia} onChange={setDia} />
-        </div>
-
-        {agendaErr ? <InlineError message={agendaErr} /> : null}
-
-        {loadingAgenda ? <div className="text-sm text-zinc-300">Carregando...</div> : null}
-
-        {!loadingAgenda && !agendaDay ? (
-          <div className="space-y-3">
-            <div className="text-sm text-zinc-300">Nenhum registro encontrado para este dia.</div>
-            <div>
-              <Button onClick={() => void onCreateDay()} disabled={creatingDay}>
-                {creatingDay ? 'Criando...' : 'Criar dia'}
-              </Button>
-            </div>
-          </div>
-        ) : null}
-
-        {!loadingAgenda && agendaDay ? (
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <div className="text-sm font-semibold text-zinc-100">Atividades</div>
-              {atividadesErr ? <InlineError message={atividadesErr} /> : null}
-              {loadingAtividades ? <div className="text-sm text-zinc-300">Carregando atividades...</div> : null}
-              {!loadingAtividades && atividades.length === 0 ? <div className="text-sm text-zinc-400">Sem atividades.</div> : null}
-
-              <div className="space-y-3">
-                {atividades.map((a) => {
-                  const id = getId(a)
-                  if (!id) return null
-                  const feita = Boolean(a.feita)
-                  const { ownerId, ownerName } = ownerIdentity(a)
-                  const enforceOwner = Boolean(ownerId || ownerName)
-                  const isOwner =
-                    Boolean(user) &&
-                    ((ownerId && user?.id === ownerId) || (ownerName && norm(user?.nome ?? '') === ownerName))
-                  const canMutate = !enforceOwner || isOwner
-                  return (
-                    <div key={id} className="rounded-2xl border border-white/10 p-4">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold text-zinc-100">{asString(a.materia) || 'Sem matéria'}</div>
-                          <div className="mt-1 text-xs text-zinc-400">Entrega: {formatDayMonth(a.data_entrega)}</div>
-                          <div className="mt-3 whitespace-pre-wrap text-sm text-zinc-200">{asString(a.conteudo) || '—'}</div>
-                        </div>
-                        <div className="flex shrink-0 items-start gap-2">
-                          {/* Davi só visualiza status (não marca) */}
-                          {isDavi ? (
-                            <div
-                              className={[
-                                'rounded-full border px-3 py-1 text-xs font-semibold',
-                                feita
-                                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
-                                  : 'border-amber-500/30 bg-amber-500/10 text-amber-100',
-                              ].join(' ')}
-                              title={feita ? 'Feita' : 'Pendente'}
-                            >
-                              {feita ? 'Feita' : 'Pendente'}
-                            </div>
-                          ) : canMutate ? (
-                            <>
-                              <button
-                                type="button"
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
-                                title="Excluir"
-                                aria-label="Excluir"
-                                onClick={() => void onDeleteAtividade(id)}
-                                disabled={deletingAtividadeId === id}
-                              >
-                                <svg
-                                  viewBox="0 0 24 24"
-                                  width="18"
-                                  height="18"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                >
-                                  <path d="M3 6h18" />
-                                  <path d="M8 6V4h8v2" />
-                                  <path d="M19 6l-1 14H6L5 6" />
-                                  <path d="M10 11v6" />
-                                  <path d="M14 11v6" />
-                                </svg>
-                              </button>
-                              <Checkbox label="Feita" checked={feita} onChange={(v) => void toggleFeita(id, v)} />
-                            </>
-                          ) : (
-                            <div
-                              className={[
-                                'rounded-full border px-3 py-1 text-xs font-semibold',
-                                feita
-                                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
-                                  : 'border-amber-500/30 bg-amber-500/10 text-amber-100',
-                              ].join(' ')}
-                              title={feita ? 'Feita' : 'Pendente'}
-                            >
-                              {feita ? 'Feita' : 'Pendente'}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
+        <div className="space-y-4">
+          <div>
+            <div className="mb-1 text-xs font-medium text-zinc-300">Dia</div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Input label="Dia" type="date" value={createDia} onChange={setCreateDia} />
+              <div className="text-xs text-zinc-300">
+                Selecionado: <span className="font-semibold text-zinc-100">{formatDayMonth(createDia || todayLocalISODate())}</span>
               </div>
             </div>
           </div>
-        ) : null}
-      </div>
+
+          <div className="space-y-3">
+            {drafts.map((d, idx) => (
+              <div key={d.key} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="text-xs font-medium text-zinc-300">Atividade {idx + 1}</div>
+                  <button
+                    type="button"
+                    className="text-xs text-zinc-300 underline decoration-white/20 underline-offset-4 hover:text-white disabled:opacity-50"
+                    disabled={drafts.length <= 1 || creating}
+                    onClick={() => setDrafts((cur) => cur.filter((x) => x.key !== d.key))}
+                  >
+                    Remover
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <Select
+                    label="Matéria"
+                    value={d.materia}
+                    onChange={(v) => setDrafts((cur) => cur.map((x) => (x.key === d.key ? { ...x, materia: v } : x)))}
+                    placeholder="Selecione..."
+                    options={[
+                      { value: 'Português', label: 'Português' },
+                      { value: 'Matemática', label: 'Matemática' },
+                      { value: 'Ciências', label: 'Ciências' },
+                      { value: 'História', label: 'História' },
+                      { value: 'Geografia', label: 'Geografia' },
+                      { value: 'Inglês', label: 'Inglês' },
+                      { value: 'Artes', label: 'Artes' },
+                      { value: 'Educação Física', label: 'Educação Física' },
+                    ]}
+                  />
+                  <Textarea
+                    label="Conteúdo"
+                    value={d.conteudo}
+                    onChange={(v) => setDrafts((cur) => cur.map((x) => (x.key === d.key ? { ...x, conteudo: v } : x)))}
+                    placeholder="Ex.: Lista 3, exercícios 1-10"
+                    rows={4}
+                  />
+                  <Input
+                    label="Data de entrega (opcional)"
+                    type="date"
+                    value={d.data_entrega}
+                    onChange={(v) => setDrafts((cur) => cur.map((x) => (x.key === d.key ? { ...x, data_entrega: v } : x)))}
+                  />
+                </div>
+              </div>
+            ))}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" onClick={() => setDrafts((cur) => [...cur, newDraft()])} disabled={creating}>
+                Adicionar atividade
+              </Button>
+            </div>
+          </div>
+
+          {createErr ? <InlineError message={createErr} /> : null}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => void onSaveCreate()} disabled={creating}>
+              {creating ? 'Salvando...' : 'Salvar'}
+            </Button>
+            <Button variant="secondary" onClick={closeCreate} disabled={creating}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {daysState.status === 'loading' ? <div className="text-sm text-zinc-300">Carregando...</div> : null}
+      {daysState.status === 'error' ? <InlineError message={daysState.message} /> : null}
+      {daysState.status === 'ready' && sortedDays.length === 0 ? <div className="text-sm text-zinc-400">Sem registros.</div> : null}
+
+      {daysState.status === 'ready' ? (
+        <div className="mt-4 space-y-12">
+          {sortedDays.map((day) => {
+            const dayId = getId(day)
+            if (!dayId) return null
+            const dia = asString(day.dia)
+
+            const atividadesState = atividadesByDayId[dayId] ?? { status: 'idle' as const }
+            const atividades = atividadesState.status === 'ready' ? atividadesState.items : []
+            const counts = atividades.reduce<{ done: number; pending: number }>(
+              (acc, a) => {
+                if (Boolean(a.feita)) acc.done += 1
+                else acc.pending += 1
+                return acc
+              },
+              { done: 0, pending: 0 },
+            )
+
+            return (
+              <div
+                key={dayId}
+                className="relative overflow-visible rounded-2xl border border-white/10 bg-white/5 p-5 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
+              >
+                <div className="absolute inset-y-0 left-0 w-1 rounded-l-2xl bg-cyan-400/80" aria-hidden />
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="text-base font-semibold text-zinc-100">Dia {formatDayMonth(dia)}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                      <span>
+                        {counts.pending} pendente{counts.pending === 1 ? '' : 's'}
+                      </span>
+                      <span className="text-zinc-500">•</span>
+                      <span>
+                        {counts.done} feita{counts.done === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 border-t border-white/10 pt-4">
+                  {atividadesState.status === 'loading' ? <div className="text-sm text-zinc-300">Carregando atividades...</div> : null}
+                  {atividadesState.status === 'error' ? <InlineError message={atividadesState.message} /> : null}
+                  {atividadesState.status === 'ready' && atividades.length === 0 ? (
+                    <div className="text-sm text-zinc-400">Sem atividades.</div>
+                  ) : null}
+
+                  {atividadesState.status === 'ready' && atividades.length > 0 ? (
+                    <div className="space-y-1">
+                      {atividades.map((a) => {
+                        const atividadeId = getId(a)
+                        if (!atividadeId) return null
+                        const feita = Boolean(a.feita)
+                        const { ownerId, ownerName } = ownerIdentity(a)
+                        const enforceOwner = Boolean(ownerId || ownerName)
+                        const isOwner =
+                          Boolean(user) &&
+                          ((ownerId && user?.id === ownerId) || (ownerName && norm(user?.nome ?? '') === ownerName))
+                        const canMutate = !enforceOwner || isOwner
+
+                        return (
+                          <div
+                            key={atividadeId}
+                            className="flex flex-col gap-2 rounded-xl border border-white/10 bg-zinc-950/30 p-4 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-sm font-semibold text-zinc-100">{asString(a.materia) || 'Sem matéria'}</div>
+                                <div className="text-[11px] text-zinc-400">Entrega: {formatDayMonth(a.data_entrega)}</div>
+                              </div>
+                              <div className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs text-zinc-200">{asString(a.conteudo) || ''}</div>
+                            </div>
+
+                            <div className="flex shrink-0 items-center gap-2">
+                              {isDavi ? null : canMutate ? (
+                                <div className="flex items-center gap-2">
+                                  <GlassSegmentedControl
+                                    value={feita ? 'feita' : 'pendente'}
+                                    onChange={(v) => void toggleFeita(dayId, a, v === 'feita')}
+                                  />
+
+                                  <ConfirmDelete busy={deletingAtividadeId === atividadeId} onConfirm={() => onDeleteAtividade(dayId, a)} />
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
     </Page>
   )
 }

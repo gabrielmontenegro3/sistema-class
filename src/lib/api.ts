@@ -19,7 +19,8 @@ function normalizeBaseUrl(raw: string): string {
 }
 
 export const API_BASE_URL = normalizeBaseUrl(
-  import.meta.env.VITE_API_URL?.trim() || 'http://localhost:3333',
+  // Força API local (remove "API online")
+  'http://localhost:3333',
 )
 
 export const BACKEND_BASE_URL = API_BASE_URL.replace(/\/api$/, '')

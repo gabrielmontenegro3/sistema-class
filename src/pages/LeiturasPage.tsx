@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../app/auth'
 import { ApiError, apiOkData } from '../lib/api'
 import { formatDayMonth } from '../lib/date'
-import { Button, InlineError, Input, Modal, Page, Textarea } from '../components/ui'
+import { Button, ConfirmDelete, CreateButton, InlineError, Input, Modal, OpenButton, Page, Textarea } from '../components/ui'
 
 type AnyItem = Record<string, unknown>
 
@@ -72,6 +72,8 @@ export function LeiturasPage() {
   const [savingAvaliacao, setSavingAvaliacao] = useState(false)
   const [avaliacaoErr, setAvaliacaoErr] = useState<string | null>(null)
   const [avaliacaoOk, setAvaliacaoOk] = useState(false)
+  const [avaliarOpen, setAvaliarOpen] = useState(false)
+  const [avaliacoesHidden, setAvaliacoesHidden] = useState(false)
 
   const [editOpen, setEditOpen] = useState(false)
   const [editLeituraId, setEditLeituraId] = useState<string | null>(null)
@@ -124,6 +126,12 @@ export function LeiturasPage() {
     void loadLeituras()
     void loadUsersIndex()
   }, [])
+
+  useEffect(() => {
+    // form de "criar avaliação" só aparece quando clicar no +
+    setAvaliarOpen(false)
+    setAvaliacoesHidden(false)
+  }, [viewId])
 
   async function ensureAvaliacoesLoaded(leituraId: string) {
     const cur = avaliacoesByLeituraId[leituraId]
@@ -283,8 +291,6 @@ export function LeiturasPage() {
   }
 
   async function onDeleteLeitura(leituraId: string) {
-    const ok = window.confirm('Excluir esta leitura?')
-    if (!ok) return
     setErr(null)
     setDeletingId(leituraId)
     try {
@@ -301,16 +307,14 @@ export function LeiturasPage() {
   return (
     <Page
       title="Leituras"
-      description="Crie uma leitura (texto). O Davi adiciona o resumo/resposta. Outros usuários avaliam com nota e comentário."
       right={
-        <Button
+        <CreateButton
           onClick={() => {
             setCreateErr(null)
             setCreateOpen(true)
           }}
-        >
-          Criar
-        </Button>
+          label="Criar leitura"
+        />
       }
     >
       <Modal
@@ -386,8 +390,11 @@ export function LeiturasPage() {
       <Modal
         open={Boolean(viewId)}
         title="Visualizar leitura"
+        variant="view"
         onClose={() => {
           setViewId(null)
+          setAvaliarOpen(false)
+          setAvaliacoesHidden(false)
           setAvaliacaoErr(null)
           setAvaliacaoOk(false)
           setNota('')
@@ -425,71 +432,140 @@ export function LeiturasPage() {
               </div>
             ) : null}
 
-            {viewAvaliacoesState.status === 'loading' ? <div className="text-sm text-zinc-300">Carregando avaliações...</div> : null}
-            {viewAvaliacoesState.status === 'error' ? <InlineError message={viewAvaliacoesState.message} /> : null}
+            {(() => {
+              const canShowAvaliar = Boolean(viewHasResumo && user && !minhaAvaliacao)
+              const hasList = viewAvaliacoesState.status === 'ready' && viewAvaliacoesState.items.length > 0
+              const hasSection =
+                viewAvaliacoesState.status === 'loading' || viewAvaliacoesState.status === 'error' || hasList || canShowAvaliar
+              if (!hasSection) return null
 
-            {viewAvaliacoesState.status === 'ready' && viewAvaliacoesState.items.length > 0 ? (
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-zinc-100">Avaliações</div>
-                  {media !== null ? (
-                    <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200">
-                      Média: <span className="font-semibold text-white">{media.toFixed(1)}</span>
-                    </div>
-                  ) : null}
-                </div>
-
+              return (
                 <div className="space-y-3">
-                  {viewAvaliacoesState.items.map((a) => {
-                    const aid =
-                      getId(a) ?? `${asString(a.usuario_id)}-${asString(a.created_at)}-${Math.random().toString(16).slice(2)}`
-                    const uid = asString(a.usuario_id).trim()
-                    const nome = uid ? usersById[uid] ?? '' : ''
-                    const who = nome ? nome : uid ? `Usuário ${uid.slice(0, 8)}…` : 'Usuário'
-                    const n = asString(a.nota)
-                    const c = asString(a.comentario).trim()
-                    return (
-                      <div key={aid} className="rounded-2xl border border-white/10 bg-zinc-950/20 p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-sm font-semibold text-zinc-100">{who}</div>
-                          <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200">
-                            Nota: <span className="font-semibold text-white">{n}</span>
-                          </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-sm font-semibold text-zinc-100">Avaliações</div>
+                    <div className="flex items-center gap-2">
+                      {!avaliacoesHidden && hasList && media !== null ? (
+                        <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200">
+                          Média: <span className="font-semibold text-white">{media.toFixed(1)}</span>
                         </div>
-                        {c ? <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-200">{c}</div> : null}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            {viewHasResumo && user && !minhaAvaliacao ? (
-              <div className="rounded-2xl border border-white/10 p-4">
-                <div className="text-sm font-semibold text-zinc-100">Avaliar</div>
-                <div className="mt-4 space-y-4">
-                  <Input label="Nota (0 a 10)" type="number" value={nota} onChange={setNota} placeholder="Ex.: 9" />
-                  <Textarea
-                    label="Comentário (opcional)"
-                    value={comentario}
-                    onChange={setComentario}
-                    rows={4}
-                    placeholder="Ex.: Boa síntese, mas..."
-                  />
-                  {avaliacaoErr ? <InlineError message={avaliacaoErr} /> : null}
-                  {avaliacaoOk ? (
-                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                      Avaliação enviada.
+                      ) : null}
+                      <button
+                        type="button"
+                        aria-label={avaliacoesHidden ? 'Mostrar avaliações' : 'Ocultar avaliações'}
+                        title={avaliacoesHidden ? 'Mostrar' : 'Ocultar'}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500/25"
+                        onClick={() =>
+                          setAvaliacoesHidden((v) => {
+                            const next = !v
+                            if (next) setAvaliarOpen(false)
+                            return next
+                          })
+                        }
+                      >
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                          {avaliacoesHidden ? <path d="M6 9l6 6 6-6" /> : <path d="M6 15l6-6 6 6" />}
+                        </svg>
+                      </button>
                     </div>
-                  ) : null}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button onClick={() => void onSubmitAvaliacao(getId(viewLeitura) ?? '')} disabled={savingAvaliacao}>
-                      {savingAvaliacao ? 'Enviando...' : 'Enviar avaliação'}
-                    </Button>
                   </div>
+
+                  {avaliacoesHidden ? null : (
+                    <>
+                      {viewAvaliacoesState.status === 'loading' ? (
+                        <div className="text-sm text-zinc-300">Carregando avaliações...</div>
+                      ) : null}
+                      {viewAvaliacoesState.status === 'error' ? <InlineError message={viewAvaliacoesState.message} /> : null}
+
+                      {hasList ? (
+                        <div className="space-y-3">
+                          {viewAvaliacoesState.items.map((a) => {
+                            const aid =
+                              getId(a) ?? `${asString(a.usuario_id)}-${asString(a.created_at)}-${Math.random().toString(16).slice(2)}`
+                            const uid = asString(a.usuario_id).trim()
+                            const nome = uid ? usersById[uid] ?? '' : ''
+                            const who = nome ? nome : uid ? `Usuário ${uid.slice(0, 8)}…` : 'Usuário'
+                            const n = asString(a.nota)
+                            const c = asString(a.comentario).trim()
+                            return (
+                              <div key={aid} className="rounded-2xl border border-white/10 bg-zinc-950/20 p-4">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="text-sm font-semibold text-zinc-100">{who}</div>
+                                  <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200">
+                                    Nota: <span className="font-semibold text-white">{n}</span>
+                                  </div>
+                                </div>
+                                {c ? <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-200">{c}</div> : null}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : null}
+
+                      {canShowAvaliar ? (
+                        <div className="rounded-2xl border border-white/10 p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-semibold text-zinc-100">Avaliar</div>
+                            <button
+                              type="button"
+                              aria-label={avaliarOpen ? 'Esconder campos de avaliação' : 'Mostrar campos de avaliação'}
+                              title={avaliarOpen ? 'Esconder' : 'Avaliar'}
+                              className={[
+                                'inline-flex h-11 w-11 items-center justify-center rounded-full text-white shadow-lg',
+                                'bg-gradient-to-br from-indigo-500 to-fuchsia-500 shadow-indigo-500/20',
+                                'transition hover:brightness-110 active:brightness-95',
+                                'focus:outline-none focus:ring-2 focus:ring-indigo-500/40',
+                              ].join(' ')}
+                              onClick={() => setAvaliarOpen((v) => !v)}
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                width="22"
+                                height="22"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                aria-hidden
+                              >
+                                {avaliarOpen ? <path d="M5 12h14" /> : <path d="M12 5v14M5 12h14" />}
+                              </svg>
+                            </button>
+                          </div>
+
+                          {!avaliarOpen ? (
+                            <div className="mt-3" />
+                          ) : (
+                            <div className="mt-4 space-y-4">
+                              <Input label="Nota (0 a 10)" type="number" value={nota} onChange={setNota} placeholder="Ex.: 9" />
+                              <Textarea
+                                label="Comentário (opcional)"
+                                value={comentario}
+                                onChange={setComentario}
+                                rows={4}
+                                placeholder="Ex.: Boa síntese, mas..."
+                              />
+                              {avaliacaoErr ? <InlineError message={avaliacaoErr} /> : null}
+                              {avaliacaoOk ? (
+                                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                                  Avaliação enviada.
+                                </div>
+                              ) : null}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  onClick={() => void onSubmitAvaliacao(getId(viewLeitura) ?? '')}
+                                  disabled={savingAvaliacao}
+                                >
+                                  {savingAvaliacao ? 'Enviando...' : 'Enviar avaliação'}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </>
+                  )}
                 </div>
-              </div>
-            ) : null}
+              )
+            })()}
           </div>
         )}
       </Modal>
@@ -508,7 +584,8 @@ export function LeiturasPage() {
           const textoShort = texto.length > 220 ? `${texto.slice(0, 220)}…` : texto
           const canMutate = isOwner(l, user)
           return (
-            <div key={id} className="rounded-2xl border border-white/10 p-5">
+            <div key={id} className="relative overflow-visible rounded-2xl border border-white/10 p-5">
+              <div className="absolute inset-y-0 left-0 w-1 rounded-l-2xl bg-cyan-400/80" aria-hidden />
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="min-w-0">
                   <div className="text-base font-semibold tracking-tight text-zinc-100 sm:text-lg">
@@ -522,8 +599,7 @@ export function LeiturasPage() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="secondary"
+                  <OpenButton
                     onClick={() => {
                       setViewId(id)
                       setAvaliacaoErr(null)
@@ -532,9 +608,8 @@ export function LeiturasPage() {
                       setComentario('')
                       void ensureAvaliacoesLoaded(id)
                     }}
-                  >
-                    Abrir
-                  </Button>
+                    label="Abrir leitura"
+                  />
                   {canMutate ? (
                     <>
                       <button
@@ -549,22 +624,7 @@ export function LeiturasPage() {
                           <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
                         </svg>
                       </button>
-                      <button
-                        type="button"
-                        aria-label="Excluir"
-                        title="Excluir"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-red-500/15 text-red-100 transition hover:bg-red-500/25 disabled:opacity-60"
-                        onClick={() => void onDeleteLeitura(id)}
-                        disabled={deletingId === id}
-                      >
-                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M3 6h18" />
-                          <path d="M8 6V4h8v2" />
-                          <path d="M19 6l-1 14H6L5 6" />
-                          <path d="M10 11v6" />
-                          <path d="M14 11v6" />
-                        </svg>
-                      </button>
+                      <ConfirmDelete busy={deletingId === id} onConfirm={() => onDeleteLeitura(id)} />
                     </>
                   ) : null}
                   {isDavi ? (

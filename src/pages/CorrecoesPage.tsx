@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../app/auth'
 import { apiOkData, ApiError } from '../lib/api'
-import { Button, InlineError, Page } from '../components/ui'
+import { formatDayMonth } from '../lib/date'
+import { Button, InlineError, Page, Select } from '../components/ui'
 
 type AnyItem = Record<string, unknown>
 
@@ -139,7 +140,7 @@ export function CorrecoesPage() {
   }, [questionsState])
 
   return (
-    <Page title="Correções" description="Marque certo/errado nas respostas do Davi.">
+    <Page title="Correções">
       {isDavi ? <InlineError message="O usuário Davi não pode acessar a tela de correções." /> : null}
 
       <div className="rounded-2xl bg-white/5 p-5">
@@ -154,28 +155,20 @@ export function CorrecoesPage() {
 
         {testsState.status === 'ready' ? (
           <div className="mt-3">
-            <label className="block">
-              <div className="mb-1 text-xs font-medium text-zinc-300">Teste</div>
-              <select
-                className="w-full rounded-xl border border-white/10 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                value={selectedTestId}
-                onChange={(e) => setSelectedTestId(e.target.value)}
-                disabled={isDavi || sortedTests.length === 0}
-              >
-                <option value="" disabled>
-                  {sortedTests.length ? 'Selecione...' : 'Nenhum teste encontrado'}
-                </option>
-                {sortedTests.map((t) => {
+            <Select
+              label="Teste"
+              value={selectedTestId}
+              onChange={setSelectedTestId}
+              disabled={isDavi || sortedTests.length === 0}
+              placeholder={sortedTests.length ? 'Selecione...' : 'Nenhum teste encontrado'}
+              options={sortedTests
+                .map((t) => {
                   const id = getId(t)
                   if (!id) return null
-                  return (
-                    <option key={id} value={id}>
-                      {asString(t.titulo) || 'Sem título'} — {asString(t.data)}
-                    </option>
-                  )
-                })}
-              </select>
-            </label>
+                  return { value: id, label: asString(t.titulo) || 'Sem título', sublabel: formatDayMonth(asString(t.data)) }
+                })
+                .filter(Boolean) as { value: string; label: string; sublabel?: string }[]}
+            />
           </div>
         ) : null}
       </div>
@@ -207,7 +200,8 @@ export function CorrecoesPage() {
                 const chosen = pend !== null ? pend : atualCorreta
 
                 return (
-                  <div key={rid} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div key={rid} className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="absolute inset-y-0 left-0 w-1 bg-cyan-400/80" aria-hidden />
                     <div className="text-xs text-zinc-400">Questão</div>
                     <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-100">{q ? asString(q.enunciado) : '(não encontrada)'}</div>
 

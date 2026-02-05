@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Page } from '../components/ui'
 import { useAuth } from '../app/auth'
 import { ApiError, apiOkData } from '../lib/api'
@@ -65,10 +65,35 @@ function DashboardTile(props: { to: string; title: string; gradient: string }) {
 export function DashboardPage() {
   const { user } = useAuth()
   const isDavi = (user?.nome ?? '').trim().toLowerCase() === 'davi'
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    function compute() {
+      try {
+        const mq = window.matchMedia?.('(pointer: coarse), (max-width: 768px)')
+        if (mq?.matches) return true
+      } catch {
+        // ignore
+      }
+      const ua = navigator.userAgent || ''
+      return /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+    }
+    setIsMobile(compute())
+    function onResize() {
+      setIsMobile(compute())
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   const [upcoming, setUpcoming] = useState<AnyItem[]>([])
   const [upcomingLoading, setUpcomingLoading] = useState(false)
   const [upcomingErr, setUpcomingErr] = useState<string | null>(null)
+
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const dragStartXRef = useRef(0)
+  const scrollStartRef = useRef(0)
 
   useEffect(() => {
     let mounted = true
@@ -120,19 +145,59 @@ export function DashboardPage() {
   }, [upcomingLoading])
 
   return (
-    <Page title="Dashboard">
+    <Page title="Painel">
       <div className="mb-6">
         <div className="mb-3 flex items-end justify-between gap-3">
           <div className="text-sm font-semibold text-zinc-100">{upcomingTitle}</div>
-          <Link to="/agenda" className="text-xs text-zinc-300 underline decoration-white/20 underline-offset-4 hover:text-white">
-            Ver agenda
+          <Link
+            to="/agenda"
+            className={[
+              'inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2',
+              'text-xs font-semibold text-zinc-100',
+              'transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500/40',
+            ].join(' ')}
+            aria-label="Ver Agenda"
+            title="Ver Agenda"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="M7 3v3" />
+              <path d="M17 3v3" />
+              <path d="M4 8h16" />
+              <path d="M6 5h12a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
+            </svg>
+            Ver Agenda
           </Link>
         </div>
 
         {upcomingErr ? <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{upcomingErr}</div> : null}
 
         {!upcomingErr ? (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <div
+            ref={scrollerRef}
+            className={['-mx-4 overflow-x-auto px-4 select-none', dragging ? 'cursor-grabbing' : 'cursor-grab'].join(' ')}
+            onPointerDown={(e) => {
+              if (e.button !== 0) return
+              const el = scrollerRef.current
+              if (!el) return
+              setDragging(true)
+              dragStartXRef.current = e.clientX
+              scrollStartRef.current = el.scrollLeft
+              el.setPointerCapture(e.pointerId)
+            }}
+            onPointerMove={(e) => {
+              if (!dragging) return
+              const el = scrollerRef.current
+              if (!el) return
+              const dx = e.clientX - dragStartXRef.current
+              el.scrollLeft = scrollStartRef.current - dx
+            }}
+            onPointerUp={(e) => {
+              const el = scrollerRef.current
+              if (el) el.releasePointerCapture(e.pointerId)
+              setDragging(false)
+            }}
+            onPointerCancel={() => setDragging(false)}
+          >
             <div className="flex snap-x snap-mandatory gap-3 pb-2">
               {upcomingLoading ? (
                 <div className="min-w-[240px] snap-start rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-zinc-300">
@@ -147,18 +212,26 @@ export function DashboardPage() {
                   const id = getId(a) ?? `${asString(a.materia)}-${asString(a.data_entrega)}`
                   const feita = Boolean(a.feita)
                   return (
-                    <div key={id} className="min-w-[240px] max-w-[280px] snap-start rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div
+                      key={id}
+                      className="relative min-w-[240px] max-w-[280px] snap-start overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4"
+                    >
+                      <div
+                        className={['absolute inset-y-0 left-0 w-1', feita ? 'bg-emerald-400/80' : 'bg-amber-400/80'].join(' ')}
+                        aria-hidden
+                      />
                       <div className="flex items-center justify-between gap-3">
                         <div className="truncate text-sm font-semibold text-zinc-100">{asString(a.materia) || 'Atividade'}</div>
                         <div className="flex shrink-0 items-center gap-2">
                           <div
                             className={[
-                              'rounded-full border px-3 py-1 text-xs font-semibold',
+                              'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold',
                               feita
-                                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
-                                : 'border-amber-500/30 bg-amber-500/10 text-amber-100',
+                                ? 'border-emerald-400/30 bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 text-emerald-100'
+                                : 'border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-amber-500/5 text-amber-100',
                             ].join(' ')}
                           >
+                            <span className={['h-2 w-2 rounded-full', feita ? 'bg-emerald-300' : 'bg-amber-300'].join(' ')} />
                             {feita ? 'Feita' : 'Pendente'}
                           </div>
                           <div className="rounded-full border border-white/10 bg-zinc-950/40 px-3 py-1 text-xs text-zinc-200">
@@ -184,7 +257,9 @@ export function DashboardPage() {
         {!isDavi ? (
           <DashboardTile to="/correcoes" title="Correções" gradient="bg-gradient-to-br from-indigo-500/25 to-sky-500/10" />
         ) : null}
-        <DashboardTile to="/dicionario" title="Dicionário" gradient="bg-gradient-to-br from-lime-500/20 to-emerald-500/10" />
+        {isDavi && isMobile ? (
+          <DashboardTile to="/dicionario" title="Dicionário" gradient="bg-gradient-to-br from-lime-500/20 to-emerald-500/10" />
+        ) : null}
       </div>
     </Page>
   )

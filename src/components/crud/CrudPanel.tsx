@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { apiOkData, ApiError } from '../../lib/api'
 import { useAuth } from '../../app/auth'
-import { Button, Checkbox, InlineError, Input, Modal, Select, Textarea } from '../ui'
-import { JsonExtras } from './JsonExtras'
+import { Button, Checkbox, ConfirmDelete, CreateButton, InlineError, Input, Modal, Select, Textarea } from '../ui'
 import { parseJsonObject } from './parseJsonObject'
 import type { FieldDef } from './types'
 
@@ -107,6 +106,10 @@ export function CrudPanel(props: {
   description?: string
   fields: FieldDef[]
   columns: string[]
+  hiddenFields?: string[]
+  createBodyDefaults?: Record<string, unknown>
+  editBodyDefaults?: Record<string, unknown>
+  sortItems?: (a: AnyItem, b: AnyItem) => number
   nested?: (item: AnyItem) => ReactNode
   canCreate?: boolean
   createDisabledReason?: string
@@ -162,8 +165,10 @@ export function CrudPanel(props: {
   }, [load])
 
   const rows = useMemo(() => {
-    return items.map((it) => ({ it, id: getId(it) ?? `noid-${Math.random().toString(16).slice(2)}` }))
-  }, [items])
+    const arr = [...items]
+    if (props.sortItems) arr.sort(props.sortItems)
+    return arr.map((it) => ({ it, id: getId(it) ?? `noid-${Math.random().toString(16).slice(2)}` }))
+  }, [items, props.sortItems])
 
   function closeCreate() {
     setCreateOpen(false)
@@ -182,7 +187,8 @@ export function CrudPanel(props: {
     if (!canCreate) return
     setCreating(true)
     try {
-      await apiOkData(props.resourcePath, { method: 'POST', body: JSON.stringify(body.value) })
+      const merged = { ...body.value, ...(props.createBodyDefaults ?? {}) }
+      await apiOkData(props.resourcePath, { method: 'POST', body: JSON.stringify(merged) })
       closeCreate()
       await load()
     } catch (e) {
@@ -230,7 +236,8 @@ export function CrudPanel(props: {
 
     setSaving(true)
     try {
-      await apiOkData(`${props.resourcePath}/${id}`, { method: 'PATCH', body: JSON.stringify(body.value) })
+      const merged = { ...body.value, ...(props.editBodyDefaults ?? {}) }
+      await apiOkData(`${props.resourcePath}/${id}`, { method: 'PATCH', body: JSON.stringify(merged) })
       closeEdit()
       await load()
     } catch (e) {
@@ -246,6 +253,7 @@ export function CrudPanel(props: {
     setDeletingId(id)
     try {
       await apiOkData(`${props.resourcePath}/${id}`, { method: 'DELETE' })
+      if (viewId === id) setViewId(null)
       await load()
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : 'Falha ao deletar')
@@ -268,7 +276,9 @@ export function CrudPanel(props: {
 
         <div className="space-y-4">
           <div className="space-y-3">
-            {props.fields.map((f) => (
+            {props.fields
+              .filter((f) => !(props.hiddenFields ?? []).includes(f.key))
+              .map((f) => (
               <div key={f.key}>
                 {renderFieldInput(f, createValues[f.key] ?? (f.type === 'boolean' ? false : ''), (v) =>
                   setCreateValues((cur) => ({ ...cur, [f.key]: v })),
@@ -276,13 +286,6 @@ export function CrudPanel(props: {
               </div>
             ))}
           </div>
-
-          <details className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <summary className="cursor-pointer text-sm font-semibold text-zinc-200">Campos extras (JSON)</summary>
-            <div className="mt-3">
-              <JsonExtras value={createExtras} onChange={setCreateExtras} />
-            </div>
-          </details>
         </div>
 
         {createErr ? (
@@ -306,6 +309,7 @@ export function CrudPanel(props: {
       <Modal
         open={Boolean(enableView && viewId)}
         title="Visualizar"
+        variant="view"
         onClose={() => {
           setViewId(null)
         }}
@@ -314,7 +318,16 @@ export function CrudPanel(props: {
           if (!viewId) return null
           const it = items.find((x) => getId(x) === viewId) ?? null
           if (!it) return <div className="text-sm text-zinc-300">Registro não encontrado.</div>
-          return props.renderView ? props.renderView(it) : <pre className="overflow-auto text-xs text-zinc-200">{JSON.stringify(it, null, 2)}</pre>
+          return (
+            <div className="space-y-4">
+              {props.renderView ? (
+                props.renderView(it)
+              ) : (
+                <pre className="overflow-auto text-xs text-zinc-200">{JSON.stringify(it, null, 2)}</pre>
+              )}
+              {props.nested ? <div className="pt-2">{props.nested(it)}</div> : null}
+            </div>
+          )
         })()}
       </Modal>
 
@@ -329,7 +342,9 @@ export function CrudPanel(props: {
         {editItem ? (
           <div className="space-y-4">
             <div className="space-y-3">
-              {props.fields.map((f) => (
+              {props.fields
+                .filter((f) => !(props.hiddenFields ?? []).includes(f.key))
+                .map((f) => (
                 <div key={f.key}>
                   {renderFieldInput(f, editValues[f.key] ?? (f.type === 'boolean' ? false : ''), (v) =>
                     setEditValues((cur) => ({ ...cur, [f.key]: v })),
@@ -337,13 +352,6 @@ export function CrudPanel(props: {
                 </div>
               ))}
             </div>
-
-            <details className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <summary className="cursor-pointer text-sm font-semibold text-zinc-200">Campos extras (JSON)</summary>
-              <div className="mt-3">
-                <JsonExtras value={editExtras} onChange={setEditExtras} label="Extras (JSON opcional) para PATCH" />
-              </div>
-            </details>
 
             {editErr ? <InlineError message={editErr} /> : null}
 
@@ -367,15 +375,14 @@ export function CrudPanel(props: {
 
         {props.showCreateButtonInList ? (
           <div className="flex flex-wrap items-center gap-2">
-            <Button
+            <CreateButton
               onClick={() => {
                 if (!canCreate) return
                 setCreateOpen(true)
               }}
               disabled={!canCreate}
-            >
-              Criar
-            </Button>
+              label={`Criar ${props.title.toLowerCase()}`}
+            />
           </div>
         ) : null}
 
@@ -399,7 +406,7 @@ export function CrudPanel(props: {
               <div
                 key={id}
                 className={[
-                  'rounded-2xl border border-white/10 bg-zinc-950/30 p-4 transition',
+                  'relative overflow-visible rounded-2xl border border-white/10 bg-zinc-950/30 p-4 transition',
                   enableView ? 'cursor-pointer hover:bg-white/5' : '',
                 ].join(' ')}
                 role={enableView ? 'button' : undefined}
@@ -415,6 +422,7 @@ export function CrudPanel(props: {
                   if (e.key === 'Enter' || e.key === ' ') setViewId(realId)
                 }}
               >
+                <div className="absolute inset-y-0 left-0 w-1 rounded-l-2xl bg-cyan-400/80" aria-hidden />
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {props.columns.map((col) => (
@@ -431,17 +439,15 @@ export function CrudPanel(props: {
                         type="button"
                         aria-label={editing ? 'Fechar edição' : 'Editar'}
                         className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
-                        onClick={() => {
+                        onClick={(e) => {
                           // evita abrir o modal de visualização ao clicar no botão
-                          // eslint-disable-next-line @typescript-eslint/no-floating-promises
-                          // (nenhuma promise aqui; só um no-op pra evitar lint quando for copiando)
+                          e.stopPropagation()
                           if (editing) closeEdit()
                           else openEdit(it)
                         }}
                         disabled={!realId}
                         title={editing ? 'Fechar' : 'Editar'}
                         onMouseDown={(e) => e.stopPropagation()}
-                        onClickCapture={(e) => e.stopPropagation()}
                       >
                         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M12 20h9" />
@@ -451,24 +457,12 @@ export function CrudPanel(props: {
                     ) : null}
 
                     {canDeleteRow ? (
-                      <button
-                        type="button"
-                        aria-label={deletingId === realId ? 'Deletando' : 'Deletar'}
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-red-500/15 text-red-100 transition hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-60"
-                        onClick={() => void onDelete(it)}
-                        disabled={!realId || deletingId === realId}
-                        title="Deletar"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClickCapture={(e) => e.stopPropagation()}
-                      >
-                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M3 6h18" />
-                          <path d="M8 6V4h8v2" />
-                          <path d="M19 6l-1 14H6L5 6" />
-                          <path d="M10 11v6" />
-                          <path d="M14 11v6" />
-                        </svg>
-                      </button>
+                      <ConfirmDelete
+                        stopPropagation
+                        disabled={!realId}
+                        busy={deletingId === realId}
+                        onConfirm={() => onDelete(it)}
+                      />
                     ) : null}
                   </div>
                 </div>

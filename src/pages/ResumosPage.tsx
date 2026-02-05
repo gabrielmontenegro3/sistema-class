@@ -1,6 +1,6 @@
 import { CrudPanel } from '../components/crud/CrudPanel'
 import type { FieldDef } from '../components/crud/types'
-import { Button, Page } from '../components/ui'
+import { CreateButton, Page } from '../components/ui'
 import { useAuth } from '../app/auth'
 import { useState } from 'react'
 
@@ -37,9 +37,7 @@ export function ResumosPage() {
     <Page
       title="Resumos"
       right={
-        <Button onClick={() => setCreateOpen(true)} disabled={isDavi}>
-          Criar
-        </Button>
+        <CreateButton onClick={() => setCreateOpen(true)} disabled={isDavi} label="Criar resumo" />
       }
     >
       <CrudPanel

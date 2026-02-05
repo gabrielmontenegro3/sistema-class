@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { apiOkData, ApiError } from '../lib/api'
 import { useAuth, type AuthUser } from '../app/auth'
-import { Button, Card } from '../components/ui'
+import { Button, Card, Select } from '../components/ui'
 
 type AnyItem = Record<string, unknown>
 
@@ -80,24 +80,14 @@ export function LoginPage() {
           {err ? <div className="mt-3 text-sm text-red-200">{err}</div> : null}
 
           <div className="mt-4">
-            <label className="block">
-              <div className="mb-1 text-xs font-medium text-zinc-300">Usuário</div>
-              <select
-                className="w-full rounded-xl border border-white/10 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                value={selectedId}
-                onChange={(e) => setSelectedId(e.target.value)}
-                disabled={loading || users.length === 0}
-              >
-                <option value="" disabled>
-                  {loading ? 'Carregando...' : users.length ? 'Selecione...' : 'Nenhum usuário encontrado'}
-                </option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.nome}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <Select
+              label="Usuário"
+              value={selectedId}
+              onChange={setSelectedId}
+              disabled={loading || users.length === 0}
+              placeholder={loading ? 'Carregando...' : users.length ? 'Selecione...' : 'Nenhum usuário encontrado'}
+              options={users.map((u) => ({ value: u.id, label: u.nome }))}
+            />
           </div>
 
           <div className="mt-4 flex items-center gap-2">

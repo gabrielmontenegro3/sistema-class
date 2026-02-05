@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../app/auth'
 import { apiOkData, ApiError } from '../lib/api'
 import { formatDayMonth } from '../lib/date'
-import { Button, InlineError, Input, Modal, Page, Textarea } from '../components/ui'
+import { Button, ConfirmDelete, CreateButton, InlineError, Input, Modal, OpenButton, Page, Textarea } from '../components/ui'
 
 type AnyItem = Record<string, unknown>
 
@@ -355,8 +355,6 @@ export function TestesPage() {
   }
 
   async function onDeleteTest(testId: string) {
-    const ok = window.confirm('Excluir este teste?')
-    if (!ok) return
     setDeletingId(testId)
     try {
       await apiOkData(`/testes/${testId}`, { method: 'DELETE' })
@@ -380,7 +378,11 @@ export function TestesPage() {
           const canMutate = !isDavi && isOwner(t, user)
 
           return (
-            <div key={id} className="min-h-24 rounded-2xl border border-white/10 p-5 transition hover:bg-white/5">
+            <div
+              key={id}
+              className="relative min-h-24 overflow-visible rounded-2xl border border-white/10 p-5 transition hover:bg-white/5"
+            >
+              <div className="absolute inset-y-0 left-0 w-1 rounded-l-2xl bg-cyan-400/80" aria-hidden />
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="min-w-0">
                   <div className="text-base font-semibold tracking-tight text-zinc-100 sm:text-lg md:text-xl">
@@ -397,8 +399,7 @@ export function TestesPage() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="secondary"
+                  <OpenButton
                     onClick={() => {
                       setViewTestId(id)
                       setSubmitErr(null)
@@ -406,9 +407,8 @@ export function TestesPage() {
                       void ensureQuestionsLoaded(id)
                       void ensureRespostasLoaded(id)
                     }}
-                  >
-                    Abrir
-                  </Button>
+                    label="Abrir teste"
+                  />
                   {canMutate ? (
                     <>
                       <button
@@ -423,22 +423,7 @@ export function TestesPage() {
                           <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
                         </svg>
                       </button>
-                      <button
-                        type="button"
-                        aria-label="Excluir"
-                        title="Excluir"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-red-500/15 text-red-100 transition hover:bg-red-500/25 disabled:opacity-60"
-                        onClick={() => void onDeleteTest(id)}
-                        disabled={deletingId === id}
-                      >
-                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M3 6h18" />
-                          <path d="M8 6V4h8v2" />
-                          <path d="M19 6l-1 14H6L5 6" />
-                          <path d="M10 11v6" />
-                          <path d="M14 11v6" />
-                        </svg>
-                      </button>
+                      <ConfirmDelete busy={deletingId === id} onConfirm={() => onDeleteTest(id)} />
                     </>
                   ) : null}
                 </div>
@@ -456,11 +441,8 @@ export function TestesPage() {
       right={
         !isDavi ? (
           <div className="flex items-center gap-2">
-            <div className="hidden text-sm text-zinc-300 sm:block">Criar teste</div>
             {!createOpen ? (
-              <Button onClick={() => setCreateOpen(true)} disabled={!canCreateTest}>
-                Criar
-              </Button>
+              <CreateButton onClick={() => setCreateOpen(true)} disabled={!canCreateTest} label="Criar teste" />
             ) : (
               <Button variant="secondary" onClick={closeCreate} disabled={creating}>
                 Fechar
@@ -473,6 +455,7 @@ export function TestesPage() {
       <Modal
         open={Boolean(viewTestId)}
         title="Visualizar teste"
+        variant="view"
         onClose={() => {
           setViewTestId(null)
           setSubmitErr(null)

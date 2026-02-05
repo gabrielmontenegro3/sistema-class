@@ -1,6 +1,6 @@
 import { CrudPanel } from '../components/crud/CrudPanel'
 import type { FieldDef } from '../components/crud/types'
-import { Button, Page } from '../components/ui'
+import { CreateButton, Page } from '../components/ui'
 import { useState } from 'react'
 
 const fields: FieldDef[] = [{ key: 'nome', label: 'Nome', type: 'text', placeholder: 'Ex.: Ana' }]
@@ -11,9 +11,7 @@ export function UsuariosPage() {
     <Page
       title="Usuários"
       right={
-        <Button onClick={() => setCreateOpen(true)}>
-          Criar
-        </Button>
+        <CreateButton onClick={() => setCreateOpen(true)} label="Criar usuário" />
       }
     >
       <CrudPanel
