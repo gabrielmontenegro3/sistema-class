@@ -20,7 +20,7 @@ function normalizeBaseUrl(raw: string): string {
 
 export const API_BASE_URL = normalizeBaseUrl(
   // Força API local (remove "API online")
-  'http://localhost:3333',
+  'https://sistema-class-backend.vercel.app/api',
 )
 
 export const BACKEND_BASE_URL = API_BASE_URL.replace(/\/api$/, '')

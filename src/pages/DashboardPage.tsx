@@ -174,7 +174,7 @@ export function DashboardPage() {
         {!upcomingErr ? (
           <div
             ref={scrollerRef}
-            className={['-mx-4 overflow-x-auto px-4 select-none', dragging ? 'cursor-grabbing' : 'cursor-grab'].join(' ')}
+            className={['-mx-4 overflow-x-auto px-4 select-none no-scrollbar', dragging ? 'cursor-grabbing' : 'cursor-grab'].join(' ')}
             onPointerDown={(e) => {
               if (e.button !== 0) return
               const el = scrollerRef.current
